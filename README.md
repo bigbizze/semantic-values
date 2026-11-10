@@ -134,4 +134,4 @@ For development, run `npm ci`, `npm run check` and `npm run example`. See the [p
 
 A valid document is not necessarily a reviewed document. `kind: 'process'` adds a separate construction route for claims that require a designated procedure. It exposes `establish`, not `create`; ordinary data validation cannot issue that stronger type. Local-only values have no decoding codec. A definition with evidence verification can reconstruct the claim through its codec without repeating the original procedure.
 
-See [process definitions](docs/API.md#process-established-definitions) for the result contract, evidence requirements and async Zod behavior. This capability is under evaluation and is not part of the published 0.1.0 package.
+See [process definitions](docs/API.md#process-established-definitions) for the result contract, evidence requirements and async Zod behavior. Process-established definitions are included starting with 0.2.0.

@@ -1,6 +1,6 @@
 {
   "name": "semantic-values",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zod-native nominal semantic values with immutable data and native wire representations",
   "license": "MIT",
   "type": "module",
