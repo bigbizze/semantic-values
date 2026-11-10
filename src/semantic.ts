@@ -1,3 +1,4 @@
+import { SemanticValidationError } from './errors.js';
 import { frozenCopy, type PlainData } from './plain-data.js';
 
 declare const nominal: unique symbol;
@@ -35,7 +36,10 @@ export function defineSemantic<T extends PlainData, Id extends symbol>(
   const prototype = Object.freeze(Object.create(null, { toJSON: { value: toJSON } }));
   function create(input: unknown): Value {
     // Snapshot before validation: getters and caller aliases cannot change what the validator sees.
-    const data = frozenCopy(parse(frozenCopy(input as PlainData)));
+    const parsed = parse(frozenCopy(input as PlainData));
+    let data: T;
+    try { data = frozenCopy(parsed); }
+    catch { throw new TypeError('Parser returned unsupported plain data'); }
     const representation = Object.freeze({ contract, version, data });
     const value = Object.freeze(Object.create(prototype)) as Value;
     members.set(value, representation as Representation<ReadonlyData<T>>);
@@ -45,12 +49,12 @@ export function defineSemantic<T extends PlainData, Id extends symbol>(
     if (typeof input !== 'object' || input === null || Array.isArray(input)
       || ![Object.prototype, null].includes(Object.getPrototypeOf(input))
       || Object.keys(input).length !== 3 || Object.keys(input).sort().join(',') !== 'contract,data,version') {
-      throw new TypeError(`Incompatible representation for ${contract}@${version}`);
+      throw new SemanticValidationError(`Incompatible representation for ${contract}@${version}`);
     }
     // Inspect metadata once; create snapshots the data with its full depth allowance.
     const { contract: receivedContract, version: receivedVersion, data } = input as Record<string, unknown>;
     if (receivedContract !== contract || receivedVersion !== version) {
-      throw new TypeError(`Incompatible representation for ${contract}@${version}`);
+      throw new SemanticValidationError(`Incompatible representation for ${contract}@${version}`);
     }
     return create(data);
   }

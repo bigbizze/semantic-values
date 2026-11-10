@@ -1,3 +1,4 @@
+import { SemanticValidationError, SemanticDepthError } from './errors.js';
 // Detached immutable snapshots of finite JSON-like data, with a maximum depth of 128.
 // Enumerable string keys are retained. Getters run during copying; symbols are omitted.
 export type PlainData = null | boolean | number | string | readonly PlainData[] | PlainObject;
@@ -8,10 +9,10 @@ export function frozenCopy<T extends PlainData>(value: T): T {
 }
 
 function copy(value: unknown, depth = 0): PlainData {
-  if (depth > 128) throw new RangeError('Plain data exceeds 128 levels.');
+  if (depth > 128) throw new SemanticDepthError('Plain data exceeds 128 levels.');
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new TypeError('Plain data has finite numbers only.');
+    if (!Number.isFinite(value)) throw new SemanticValidationError('Plain data has finite numbers only.');
     return value;
   }
   if (Array.isArray(value)) return Object.freeze(Array.from(value, (item) => copy(item, depth + 1)));
@@ -27,5 +28,5 @@ function copy(value: unknown, depth = 0): PlainData {
       return Object.freeze(out);
     }
   }
-  throw new TypeError(`Not plain data: ${Object.prototype.toString.call(value)}`);
+  throw new SemanticValidationError(`Not plain data: ${Object.prototype.toString.call(value)}`);
 }

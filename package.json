@@ -5,10 +5,23 @@
   "description": "Opaque nominal values with validated immutable data and explicit reconstruction",
   "license": "UNLICENSED",
   "type": "module",
-  "engines": { "node": ">=24" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./zod": {
+      "types": "./dist/zod.d.ts",
+      "import": "./dist/zod.js"
+    }
+  },
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
@@ -16,5 +29,17 @@
     "check": "npm run build && npm run typecheck && npm test",
     "example": "node examples/usage.ts"
   },
-  "devDependencies": { "@types/node": "24.19.2", "typescript": "5.9.3" }
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3",
+    "zod": "4.6.7"
+  },
+  "peerDependencies": {
+    "zod": "^4.6.7"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
+  }
 }

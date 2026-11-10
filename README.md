@@ -7,16 +7,16 @@ Structural types describe shape. They cannot by themselves establish that a valu
 ## Define and use a type
 
 ```ts
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic, SemanticValidationError } from '@bigbizze/semantic-values';
 
 const identifierIdentity: unique symbol = Symbol('Identifier');
 const Identifier = defineSemantic(identifierIdentity, {
   contract: 'example.identifier',
   version: 1,
   parse(input) {
-    if (typeof input !== 'string') throw new TypeError('Expected a string');
+    if (typeof input !== 'string') throw new SemanticValidationError('Expected a string');
     const name = input.trim().toLowerCase();
-    if (!/^[a-z][a-z0-9_]{2,31}$/.test(name)) throw new TypeError('Invalid identifier');
+    if (!/^[a-z][a-z0-9_]{2,31}$/.test(name)) throw new SemanticValidationError('Invalid identifier');
     return name;
   },
 });
@@ -54,13 +54,13 @@ Parsers are trusted, receiver-free callbacks. A bound schema parser or a closure
 ## Sensitive values
 
 ```ts
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic, SemanticValidationError } from '@bigbizze/semantic-values';
 
 const sensitiveIdentity: unique symbol = Symbol('SensitiveText');
 const SensitiveText = defineSemantic(sensitiveIdentity, {
   contract: 'example.sensitive-text', version: 1, sensitive: true,
   parse(input) {
-    if (typeof input !== 'string' || !input.length) throw new TypeError('Expected nonempty text');
+    if (typeof input !== 'string' || !input.length) throw new SemanticValidationError('Expected nonempty text');
     return input;
   },
 });
@@ -109,3 +109,40 @@ npm pack --dry-run
 ```
 
 `check` builds JavaScript and declarations, checks source/examples/type fixtures, runs focused runtime tests, and installs a local tarball in an isolated consumer to verify package exports, emitted nominal types, independent modules and process reconstruction. Generated output is ignored by Git. The package remains private; there is no publishing workflow.
+
+## Optional Zod 4 composition
+
+Install Zod separately to use the `./zod` export. Core consumers do not need it. The adapter uses Zod's bidirectional codecs; it does not duplicate semantic predicates or contract metadata.
+
+```ts
+import { z } from 'zod';
+import { semanticCodec } from '@bigbizze/semantic-values/zod';
+// Identifier is an existing authoritative semantic definition.
+const Schema = z.object({ owner: semanticCodec(Identifier), aliases: z.array(semanticCodec(Identifier)) });
+const input = { owner: Identifier.encode(value), aliases: [Identifier.encode(value)] };
+const local = Schema.parse(input);
+Identifier.read(local.owner);
+const wire = z.encode(Schema, local);
+```
+
+The input type is the definition's encoded representation; the output is its nominal value. Decoding calls the definition's decoder. Encoding checks local membership before calling its encoder. Objects, arrays, tuples, unions and optional/nullable fields are supplied by Zod. An ordinary composed record is not itself immutable or semantically authenticated; its semantic children remain so.
+
+Expected validation failures need an explicit distinction from bugs. Core input rejections use `SemanticValidationError` (a `TypeError`) or `SemanticDepthError` (a `RangeError`). Application parsers can throw `SemanticValidationError` for rejected input, or use a Zod parser. The adapter converts these errors and `ZodError` into a generic Zod issue at the semantic field's schema path. It does not copy parser messages or input into the issue. Other exceptions propagate, including ordinary `TypeError` and `RangeError`; do not broadly catch these as user input errors. Unsupported parser output is a programming error and propagates.
+
+`safeParse` and `safeDecode` therefore return failures for declared validation rejections, not for arbitrary programmer exceptions. Parser-specific inner paths are deliberately omitted; the surrounding object/array path is retained. Other application schemas, custom messages or Zod's input-reporting options remain the application's diagnostic policy.
+
+`z.encode` is explicit disclosure, including sensitive children. `JSON.stringify(local)` still invokes each child's own policy and refuses sensitive values. Explicitly encoded plain data does not retain a sensitivity policy. For a valid plain composed message without extra fields, both paths produce equivalent JSON; ordinary JSON does not validate the compound schema or its cross-field rules.
+
+Exporting composed schemas across declaration boundaries can require explicit codec type aliases and an exported object-shape annotation when child identities are private to another module. `examples/composition.ts` shows that boilerplate without exporting identity symbols or duplicating predicates. Local schemas generally infer without it. `SemanticCodec<Value, Wire>` is available as a type-only annotation.
+
+An outer semantic value may validate child representations through a composed schema, check a relation between their decoded contents, and retain the encoded result. Reconstruct children through that schema on consumption. Native retention of opaque child handles remains unsupported. The bundle example enforces a distinct-item list containing the selected item; validating each child alone is insufficient.
+
+### Reconstruction and diagnostic constraints
+
+Portable parsers must be deterministic and replay stable: parsing their canonical output must succeed and preserve the same meaning. A one-way transformation (for example, stripping a required prefix on every parse) does not satisfy this contract. The library cannot prove parser purity or this law. Test canonical round trips for each application definition. The outer example also validates the exact child representation it retains; that check does not prove future stability for an arbitrary stateful parser.
+
+An ordinary Zod schema is not an authenticated outer-value boundary. Zod can read an accessor more than once while encoding a refined object. Use stable plain application records for direct schema encoding. For an authenticated immutable outer invariant, use `Bundle.create`, which snapshots input before the parser runs. Do not treat direct `BundleFields` encoding of accessor-bearing or concurrently changing records as proof of its relation.
+
+The error classes carry namespaced `code` values so errors from a second physical installation can be classified without matching constructor identity. This is an explicit validation-error convention, not an authenticity mechanism. Ordinary unmarked TypeError and RangeError still propagate. The adapter recognizes Zod 4 core errors, including Zod Mini. Every exception during parser-output snapshotting is replaced with a generic programmer TypeError, without copying its message or cause into diagnostics.
+
+Adapter leaf issues are redacted. An enclosing Zod union with `reportInput: true` can still include the complete submitted representation in its own `invalid_union` issue. Leave input reporting disabled for sensitive input and review application-level diagnostics; child sensitivity does not redact enclosing Zod issues.
