@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "noEmit": true, "rootDir": ".", "types": ["node"],
+    "allowImportingTsExtensions": true, "erasableSyntaxOnly": true
+  },
+  "include": ["src/**/*.ts", "examples/**/*.ts", "test/**/*.ts"]
+}
