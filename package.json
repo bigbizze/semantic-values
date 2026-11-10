@@ -1,9 +1,8 @@
 {
   "name": "@bigbizze/semantic-values",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Opaque nominal values with validated immutable data and explicit reconstruction",
-  "license": "UNLICENSED",
+  "version": "0.1.0",
+  "description": "Zod-native nominal semantic values with immutable data and native wire representations",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -16,14 +15,17 @@
   },
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "docs/API.md"
   ],
   "scripts": {
     "build": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\" && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test --test-timeout=5000 test/*.test.ts && node test/package.mjs",
     "check": "npm run build && npm run typecheck && npm test",
-    "example": "node examples/usage.ts"
+    "example": "node examples/usage.ts",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run check"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
@@ -32,5 +34,17 @@
   },
   "peerDependencies": {
     "zod": "^4.6.7"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bigbizze/semantic-values.git"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "homepage": "https://github.com/bigbizze/semantic-values#readme",
+  "bugs": {
+    "url": "https://github.com/bigbizze/semantic-values/issues"
   }
 }

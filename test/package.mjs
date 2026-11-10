@@ -8,14 +8,17 @@ import { spawnSync } from 'node:child_process';
 const temporary = await mkdtemp(join(tmpdir(), 'semantic-values-'));
 const compiler = fileURLToPath(new URL('../node_modules/typescript/bin/tsc', import.meta.url));
 function run(command, args, cwd, input) {
-  const result = spawnSync(command, args, { cwd, input, encoding: 'utf8', timeout: 30000 });
+  // A parent publish dry-run must still create and install the test's isolated tarballs.
+  const result = spawnSync(command, args, {
+    cwd, input, encoding: 'utf8', timeout: 30000, env: { ...process.env, npm_config_dry_run: 'false' },
+  });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   return result.stdout;
 }
 try {
   // Regression: published exports and declarations must work without access to source internals.
   const packed = JSON.parse(run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', temporary], process.cwd()))[0];
-  const expected = ['README.md', 'package.json', 'dist/index.js', 'dist/index.d.ts',
+  const expected = ['README.md', 'LICENSE', 'docs/API.md', 'package.json', 'dist/index.js', 'dist/index.d.ts',
     'dist/semantic.js', 'dist/semantic.d.ts', 'dist/plain-data.js', 'dist/plain-data.d.ts',
 ];
   assert.deepEqual(packed.files.map((entry) => entry.path).sort(), expected.sort());
