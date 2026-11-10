@@ -4,7 +4,7 @@ Import the runtime API from `semantic-values`. There is no separate Zod adapter 
 
 ## `defineSemantic(identity, { schema, sensitive? })`
 
-Creates a definition with `create`, `codec`, `read`, `encode` and `is`. The definition object is frozen.
+With `kind: "data"` (the default), creates a definition with `create`, `codec`, `read`, `encode` and `is`. The definition object is frozen. Process definitions use the separate construction contract described below.
 
 - `identity`: a declaration-site unique symbol. `const identity = Symbol('Label')` infers the required type. Use a different declaration for each semantic type. The symbol's description is not an identifier or a compatibility rule.
 - `schema`: a synchronous Zod 4 schema or bidirectional codec with supported plain-data input and output.
@@ -91,7 +91,7 @@ JSON parsing never reconstructs membership. Select the receiving definition or c
 Input, retained output and wire representations must fit this bounded data model:
 
 - Null, booleans, strings and finite numbers.
-- Arrays and plain records, including records with a null prototype.
+- Arrays and plain records from the current JavaScript realm, including records with a null prototype. Transfer foreign-realm records as JSON and parse them locally.
 - A maximum nesting depth of 128.
 
 Dates, maps, sets, functions, undefined values, custom instances, cycles and nested opaque handles are unsupported. Omitted optional properties work; an explicit undefined property does not.
@@ -156,3 +156,44 @@ After a module reload, an old handle remains usable by its original definition. 
 TypeScript rejects ordinary structural substitutes, but casts, `any`, `Object.assign`, `structuredClone` and proxies can retain an apparent type without runtime membership. Checked operations still reject them. Reusing one identity symbol for multiple same-output definitions also defeats static distinction; declare one identity per type.
 
 Ordinary JSON, separate module instances and another Node process are tested. This does not establish compatibility with every framework serializer. Use explicit encoded representations for React Server Component props and reconstruct at receipt. Construction-history claims and facts about changing external state need separate verification.
+
+## Process-established definitions
+
+Use `kind: 'process'` when valid data alone does not establish the claim. Data schemas remain synchronous, repeatable structural checks. The designated process belongs in `establish`, not in a Zod refinement or transformation.
+
+```ts
+const checkedIdentity = Symbol('CheckedText');
+const CheckedText = defineSemantic(checkedIdentity, {
+  kind: 'process',
+  schema: z.object({ source: z.string(), text: z.string().min(1) }),
+  establish: data => ({ ok: data.source === 'entry' }),
+});
+const checked = await CheckedText.establish({ source: 'entry', text: 'example' });
+CheckedText.read(checked);
+```
+
+`establish(unknown)` always returns a Promise. Input is detached and validated before the callback receives it. The callback must explicitly return `{ ok: true }` or `{ ok: false }`, synchronously or asynchronously. Returning without throwing is insufficient. Async results use standard JavaScript Promise semantics. Callbacks and their returned Promise behavior are trusted application code; the library does not defend against deliberately modified Promise internals. Refusal rejects with a redacted Zod error; unexpected non-Zod exceptions propagate. Successful issuance retains the exact checked snapshot. Reading and forwarding do not repeat the process.
+
+Local-only definitions expose `establish`, `read`, `is` and `valueSchema`. They have no `create`, `encode` or `codec`. `valueSchema` checks existing local handles, so it can appear in a Zod object accepting already established values. It cannot reconstruct one from underlying data. JSON serialization refuses local-only handles. Reading still permits deliberate disclosure of their underlying data; it does not make that data carry the process claim.
+
+### Evidence-backed reconstruction
+
+A process definition may add `portable: { schema, verify }`. This is an optional capability of the process mode, not another kind of semantic type.
+
+- `establish` must then return `{ ok: true, evidence }` or `{ ok: false }`.
+- `portable.schema` describes the application's native evidence representation. It must be synchronous, encodable and replay-stable, like a data definition's schema.
+- `verify` receives detached validated evidence and returns `{ ok: true, subject }` or `{ ok: false }`. It is synchronous by default. Set `portable.async: true` to accept asynchronous verification (including Promise-like results from other realms). The subject may be deeply readonly and is the exact native output of the underlying data schema, not wire input or an already authenticated handle. Portable process definitions therefore require an encodable, replay-stable data schema as well as an evidence schema. The runtime validates the returned subject through encoding and reconstruction, and refuses any change to that subject.
+- Initial establishment runs the designated procedure once. It then verifies the evidence and checks that the verified subject equals the subject established by the procedure. Incorrect evidence issues no handle, although any procedure side effect has already happened; there is no implicit rollback or retry.
+- Codec reconstruction verifies the evidence and issues a local handle for the returned subject. It never runs `establish`.
+
+The definition adds `codec` and membership-checked `encode`. Encoding and JSON use the retained evidence representation. A sensitive definition refuses implicit JSON; explicit encoding is allowed.
+
+With `portable.async: true`, use `parseAsync`, `safeParseAsync`, `z.decodeAsync`, `z.safeDecodeAsync`, `z.encodeAsync` and `z.safeEncodeAsync` on composed schemas. Synchronous verification without that option permits synchronous codec parsing. An async definition includes a harmless native Zod async check before verification. Synchronous parsing or encoding therefore throws before the verifier starts, including inside nested schemas. Direct `Type.encode` and JSON still use the retained evidence synchronously. A JavaScript callback that unexpectedly returns a Promise without the async option is rejected as a configuration error, and that rejected Promise is observed.
+
+The verifier must bind the evidence to the exact subject and claim, using an application-trusted source. Merely finding the expected fields in a received object proves nothing about a previous event. The [reviewed-document example](../examples/process.ts) uses a synthetic trusted event log. Evidence verification must be repeatable: callers and Zod compositions can invoke it multiple times. Each explicit `establish` call invokes the procedure once; separate caller retries are separate calls and may repeat effects.
+
+The definition captures its supplied callback references. Mutating the options object afterward cannot replace them. Application code still owns those callbacks, their closed-over dependencies, schemas, producer exposure and trust sources. The library cannot make an always-successful callback prove something it never checked.
+
+These values represent establishment at a particular time. They do not freeze external state. Check current existence, availability, permission or other changing facts at the operation that requires them. There is no expiry or revocation mechanism.
+
+Type-only process exports are `ProcessDefinition`, `PortableDefinition`, `Decision`, `EvidenceDecision` and `Verification`. Process identity is distinct from data identity even when an application accidentally reuses a symbol and output data type. Distinct definitions within one mode still need distinct declaration-site symbols.

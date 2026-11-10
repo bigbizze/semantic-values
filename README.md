@@ -129,3 +129,9 @@ The [API reference](docs/API.md) covers each operation, schema requirements, err
 Ordinary JSON serialization is supported. Other protocols have their own rules. For React Server Component props, use explicit Zod encoding and receiving-side parsing; raw custom handles are not promised to work.
 
 For development, run `npm ci`, `npm run check` and `npm run example`. See the [publication procedure](https://github.com/bigbizze/semantic-values/blob/main/PUBLISHING.md) for release steps. Licensed under [MIT](LICENSE).
+
+## Designated processes
+
+A valid document is not necessarily a reviewed document. `kind: 'process'` adds a separate construction route for claims that require a designated procedure. It exposes `establish`, not `create`; ordinary data validation cannot issue that stronger type. Local-only values have no decoding codec. A definition with evidence verification can reconstruct the claim through its codec without repeating the original procedure.
+
+See [process definitions](docs/API.md#process-established-definitions) for the result contract, evidence requirements and async Zod behavior. This capability is under evaluation and is not part of the published 0.1.0 package.
