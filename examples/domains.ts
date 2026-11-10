@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 
 const identifierIdentity = Symbol('Identifier');
 export const Identifier = defineSemantic(identifierIdentity, { schema: z.string().regex(/^[a-z]+$/) });

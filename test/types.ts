@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 const a = Symbol('same'), b = Symbol('same');
 const A = defineSemantic(a, { schema: z.string() });
 const B = defineSemantic(b, { schema: z.string() });

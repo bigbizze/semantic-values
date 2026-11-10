@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { z } from 'zod';
 import * as mini from 'zod/mini';
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 import { Identifier, Sku, DependencyGraph, SensitiveText } from '../examples/domains.ts';
 import { Order, Bundle, readBundle } from '../examples/composition.ts';
 

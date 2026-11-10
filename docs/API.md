@@ -1,6 +1,6 @@
 # API reference
 
-Import the runtime API from `@bigbizze/semantic-values`. There is no separate Zod adapter entry point.
+Import the runtime API from `semantic-values`. There is no separate Zod adapter entry point.
 
 ## `defineSemantic(identity, { schema, sensitive? })`
 
@@ -12,7 +12,7 @@ Creates a definition with `create`, `codec`, `read`, `encode` and `is`. The defi
 
 ```ts
 import { z } from 'zod';
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 
 const countIdentity = Symbol('Count');
 const Count = defineSemantic(countIdentity, {

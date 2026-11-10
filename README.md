@@ -20,7 +20,7 @@ This SKU has a canonical spelling. Callers can provide lowercase text or surroun
 
 ```ts
 import { z } from 'zod';
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 
 const skuIdentity = Symbol('Sku');
 export const Sku = defineSemantic(skuIdentity, {
@@ -118,10 +118,10 @@ Explicit Zod encoding also allows disclosure. This setting applies to the handle
 
 ## Use and documentation
 
-Version 0.1.0 is prepared for its first npm release; it has not been published yet. The package name is `@bigbizze/semantic-values`. It requires Node 24 or newer and Zod `^4.6.7`. After publication:
+The package is `semantic-values`. It requires Node 24 or newer and Zod `^4.6.7`:
 
 ```sh
-npm install @bigbizze/semantic-values zod
+npm install semantic-values zod
 ```
 
 The [API reference](docs/API.md) covers each operation, schema requirements, errors, immutability and composition. Runnable examples include a [validated dependency graph](examples/domains.ts) and an [outer invariant involving semantic children](examples/composition.ts).

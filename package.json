@@ -1,5 +1,5 @@
 {
-  "name": "@bigbizze/semantic-values",
+  "name": "semantic-values",
   "version": "0.1.0",
   "description": "Zod-native nominal semantic values with immutable data and native wire representations",
   "license": "MIT",

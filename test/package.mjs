@@ -29,7 +29,7 @@ try {
   run('npm', ['install', '--ignore-scripts', '--package-lock=false', '--offline', '--no-audit', '--no-fund', join(temporary, packed.filename), join(temporary, zodPackage.filename)], consumer);
 
   await writeFile(join(consumer, 'types.ts'), `
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 import { z } from 'zod';
 const a: unique symbol = Symbol('same');
 const b: unique symbol = Symbol('same');
@@ -48,11 +48,11 @@ const Numeric = defineSemantic(a, { schema: z.number() });
 // @ts-expect-error -- declaration emission must retain generic data distinctions
 Numeric.read(value);
 // @ts-expect-error -- source subpaths are not package exports
-import '@bigbizze/semantic-values/src/semantic.js';
+import 'semantic-values/src/semantic.js';
 `);
   run(process.execPath, [compiler, '--noEmit', '--strict', '--noUncheckedSideEffectImports', '--module', 'NodeNext', '--target', 'ES2023', 'types.ts'], consumer);
   await writeFile(join(consumer, 'definition.mjs'), `
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 import { z } from 'zod';
 const identity = Symbol('label');
 export const Label = defineSemantic(identity, { schema: z.string().regex(/^[a-z]+$/) });
@@ -94,7 +94,7 @@ process.stdout.write(JSON.stringify(wire));
   assert.equal(run(process.execPath, ['receive.mjs', 'direct'], consumer, JSON.stringify('sample')), 'sample');
   await writeFile(join(consumer, 'codec.ts'), `
 import { z } from 'zod';
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 
 const a: unique symbol = Symbol('same');
 const b: unique symbol = Symbol('same');
@@ -127,7 +127,7 @@ void [text, wrong, native, encoded, incorrect];
   await writeFile(join(consumer, 'codec.mjs'), `
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 
 const Type = defineSemantic(Symbol('checked'), { schema: z.string().min(1) });
 const schema = z.object({ values: z.array(Type.codec) });
@@ -140,7 +140,7 @@ assert.deepEqual(invalid.error.issues[0].path, ['values', 0]);
 `);
   run(process.execPath, ['codec.mjs'], consumer);
   await writeFile(join(consumer, 'domain.ts'), `
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 import { z } from 'zod';
 const identity: unique symbol = Symbol('label');
 export const Label = defineSemantic(identity, { schema: z.string() });
@@ -170,7 +170,7 @@ void text;
   run(process.execPath, [compiler, '--strict', '--noEmit', '--module', 'NodeNext', '--target', 'ES2023', 'public-consumer.ts'], consumer);
   // Regression: physically separate schema-library copies must retain Zod failure classification.
   await cp(join(consumer, 'node_modules/zod'), join(consumer, 'other-zod'), { recursive: true });
-  await cp(join(consumer, 'node_modules/@bigbizze/semantic-values'), join(consumer, 'other-values'), { recursive: true });
+  await cp(join(consumer, 'node_modules/semantic-values'), join(consumer, 'other-values'), { recursive: true });
   await writeFile(join(consumer, 'copies.mjs'), `
 import assert from 'node:assert/strict';
 import { z } from './other-zod/index.js';

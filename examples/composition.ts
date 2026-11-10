@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineSemantic } from '@bigbizze/semantic-values';
+import { defineSemantic } from 'semantic-values';
 import { Identifier, Sku, DependencyGraph } from './domains.ts';
 
 // Explicit shape annotations allow declaration emission without exporting private identity symbols.
