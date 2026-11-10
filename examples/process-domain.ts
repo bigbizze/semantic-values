@@ -28,4 +28,5 @@ export function reviewService() {
   };
 }
 export const RequestSchema = z.object({ source: z.string(), text: z.string().min(1) }).strict();
+// Synthetic input rule only; a source string does not prove trusted origin or application approval.
 export function checkRequest(request: Readonly<z.output<typeof RequestSchema>>) { return { ok: request.source === 'entry' }; }
