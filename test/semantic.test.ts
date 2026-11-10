@@ -1,147 +1,173 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { z } from 'zod';
+import * as mini from 'zod/mini';
 import { defineSemantic } from '@bigbizze/semantic-values';
-import { Identifier, DependencyGraph, SensitiveText } from '../examples/domains.ts';
-const graphInput = () => ({ nodes: [
-  { id: 'base', dependencies: [] as string[] }, { id: 'assembly', dependencies: ['base'] },
-] });
+import { Identifier, Sku, DependencyGraph, SensitiveText } from '../examples/domains.ts';
+import { Order, Bundle, readBundle } from '../examples/composition.ts';
 
-// Regression: validation must precede issuance on both construction paths, without repeating it at consumption.
-test('construction and versioned reconstruction enforce the receiving predicate', () => {
-  const id = Symbol('validated');
-  let calls = 0;
-  const Type = defineSemantic(id, { contract: 'example.checked', version: 1, parse(input) {
-    calls++;
-    if (input !== 'accepted') throw new TypeError('Rejected');
-    return input;
-  } });
-  const value = Type.create('accepted');
-  Type.read(value); Type.encode(value); JSON.stringify(value);
-  assert.equal(calls, 1);
-  const wire = JSON.parse(JSON.stringify(value));
-  assert.equal(Type.is(wire), false);
-  assert.equal(Type.is(Type.decode(wire)), true);
-  for (const change of [{ contract: 'other' }, { version: 2 }, { extra: true }, { data: 'rejected' }]) {
-    assert.throws(() => Type.decode({ ...wire, ...change }));
-  }
-  assert.throws(() => Type.create('rejected'));
-  const disguised = Object.defineProperties({ contract: 'example.checked', 'data,version': null }, {
-    data: { value: 'accepted' }, version: { value: 1 },
-  });
-  assert.throws(() => Type.decode(disguised), 'Comma-containing keys must not hide missing enumerable fields');
-  const duplicate = defineSemantic(id, { contract: 'example.checked', version: 1, parse: () => 'accepted' });
-  assert.equal(duplicate.is(value), false);
-  assert.throws(() => duplicate.read(value));
+// Regression: native normalization and composed reconstruction must retain local membership and wire shapes.
+test('native representations and nested schema composition', () => {
+  const schema = z.object({ order: Order, pair: z.tuple([Sku.codec, Identifier.codec]),
+    choice: z.union([Sku.codec, Identifier.codec]), optional: Sku.codec.optional().nullable(),
+    tagged: z.discriminatedUnion('kind', [z.object({ kind: z.literal('sku'), value: Sku.codec }),
+      z.object({ kind: z.literal('id'), value: Identifier.codec })]) });
+  const value = schema.parse({ order: { owner: 'alice', items: ['ab-123'] }, pair: ['cd-456', 'alice'],
+    choice: 'ef-789', optional: null, tagged: { kind: 'sku', value: 'ab-123' } });
+  assert.equal(Sku.read(value.order.items[0]!), 'AB-123');
+  const wire = z.encode(schema, value);
+  assert.equal(wire.order.items[0], 'AB-123');
+  assert.deepEqual(JSON.parse(JSON.stringify(value)), wire);
+  assert.ok(Sku.is(schema.parse(wire).pair[0]));
+  assert.equal(z.safeDecode(Sku.codec, 'bad').success, false);
+  assert.equal(Sku.read(z.decode(Sku.codec, 'ab-123')), 'AB-123');
 });
 
-// Regression: input, parser-output and encoded-result aliases must not change established graph invariants.
-test('immutable snapshots retain graph meaning and reject invalid references', () => {
-  const input = graphInput();
-  const value = DependencyGraph.create(input);
-  const before = JSON.stringify(value);
-  input.nodes[0]!.dependencies.push('missing');
-  assert.equal(JSON.stringify(value), before);
-  assert.throws(() => Object.assign(DependencyGraph.read(value).nodes[0]!, { id: 'changed' }));
-  assert.throws(() => Object.assign(DependencyGraph.encode(value).data.nodes[0]!.dependencies, { 0: 'missing' }));
-  for (const invalid of [
-    { nodes: [{ id: 'base', dependencies: ['missing'] }] },
-    { nodes: [{ id: 'base', dependencies: ['assembly'] }, { id: 'assembly', dependencies: ['base'] }] },
-    { nodes: [{ id: 'base', dependencies: [] }, { id: 'base', dependencies: [] }] },
-  ]) assert.throws(() => DependencyGraph.create(invalid));
-  const id = Symbol('alias');
-  const retained = { entries: [1] };
-  const options = { contract: 'example.alias', version: 1, parse: () => retained };
-  const Alias = defineSemantic(id, options);
-  const issued = Alias.create(null);
-  retained.entries.push(2);
-  options.version = 2;
-  options.parse = () => ({ entries: [3] });
-  assert.deepEqual(Alias.read(issued), { entries: [1] });
-  assert.equal(Alias.encode(Alias.create(null)).version, 1);
+// Regression: TS-preserving copies, proxies and refined-union canaries must not bypass reverse membership checks.
+test('copies and borrowed serialization cannot authenticate', () => {
+  const value = Sku.create('ab-123');
+  const borrowed = Object.getPrototypeOf(value).toJSON;
+  const candidates = [{}, { ...value }, Object.assign({}, value), structuredClone(value), new Proxy(value, {}),
+    Object.create(Object.getPrototypeOf(value))];
+  const refined = z.union([Sku.codec, Identifier.codec]).refine(() => true);
+  for (const candidate of candidates) {
+    assert.equal(Sku.is(candidate), false);
+    assert.equal(Sku.codec.out.safeParse(candidate).success, false);
+    assert.throws(() => Sku.read(candidate as typeof value));
+    assert.throws(() => Sku.encode(candidate as typeof value));
+    assert.throws(() => borrowed.call(candidate));
+    assert.equal(z.safeEncode(refined, candidate as typeof value).success, false);
+  }
+  assert.equal(z.encode(refined, value), 'AB-123');
+  assert.equal(Sku.codec.out.parse(value), value);
 });
 
-// Regression: static copy signatures, proxies and borrowed serializers must not grant access to private data.
-test('opaque handles authenticate all consumption paths', () => {
-  const ordinary = Identifier.create(' BLUE_WIDGET ');
-  const sensitive = SensitiveText.create('demonstration-only');
-  for (const [Type, value] of [[Identifier, ordinary], [SensitiveText, sensitive]] as const) {
-    const serialize = Reflect.get(value, 'toJSON');
-    assert.equal(Reflect.get(value, 'data'), undefined);
-    assert.equal(Reflect.get(value, 'representation'), undefined);
-    assert.deepEqual(Object.keys(value), []);
-    for (const fake of [{}, { data: 'fake' }, { ...value }, Object.assign({}, value), structuredClone(value),
-      Object.create(Object.getPrototypeOf(value)), new Proxy(value, {}), null, 0]) {
-      assert.equal(Type.is(fake), false);
-      assert.throws(() => Type.read(fake as never), /Expected local/);
-      assert.throws(() => Type.encode(fake as never), /Expected local/);
-      assert.throws(() => Reflect.apply(serialize, fake, []), /Expected local/);
-    }
-    assert.throws(() => Reflect.apply(serialize, value === ordinary ? sensitive : ordinary, []), /Expected local/);
-    assert.throws(() => JSON.stringify(new Proxy(value, {})), /Expected local/);
-  }
+// Regression: input aliases, schema-output aliases and observations must not mutate retained meaning or encoding.
+test('detached snapshots and structured invariants', () => {
+  const input = { nodes: ['a', 'b'], edges: [['a', 'b']] };
+  const graph = DependencyGraph.create(input);
+  input.nodes.length = 0;
+  assert.deepEqual(DependencyGraph.encode(graph), { nodes: ['a', 'b'], edges: [['a', 'b']] });
+  assert.throws(() => (DependencyGraph.read(graph).nodes as string[]).push('x'));
+  assert.throws(() => DependencyGraph.create({ nodes: ['a'], edges: [['a', 'b']] }), z.ZodError);
+  const alias = { list: ['a'] };
+  const identity = Symbol();
+  const type = defineSemantic(identity, { schema: z.codec(z.object({ list: z.array(z.string()) }),
+    z.object({ list: z.array(z.string()) }), { decode: () => alias, encode: x => x }) });
+  const minted = type.create(alias);
+  alias.list.push('b');
+  assert.deepEqual(type.read(minted), { list: ['a'] });
+  assert.deepEqual(type.encode(minted), { list: ['a'] });
 });
 
-// Regression: automatic compound JSON must use checked representations, while sensitivity remains an implicit-only policy.
-test('ordinary and sensitive serialization keep their distinct policies', () => {
-  const value = Identifier.create(' BLUE_WIDGET ');
-  const graph = DependencyGraph.create(graphInput());
-  const message = JSON.parse(JSON.stringify({ value, list: [graph, value] }));
-  assert.deepEqual(message, { value: Identifier.encode(value), list: [DependencyGraph.encode(graph), Identifier.encode(value)] });
-  assert.equal(Identifier.read(Identifier.decode(message.value)), 'blue_widget');
-  assert.equal(JSON.stringify(value), JSON.stringify(Identifier.encode(value)));
-  const secret = SensitiveText.create('demonstration-only');
-  for (const container of [secret, { secret }, [secret], { nested: [{ secret }] }]) {
-    assert.throws(() => JSON.stringify(container), (error: unknown) => {
-      assert.ok(error instanceof TypeError);
-      assert.match(error.message, /sensitive.*encode/);
-      assert.ok(!error.message.includes('demonstration-only'));
-      return true;
-    });
+// Regression: invalid nested data must be Zod failures with useful outer paths and no schema-provided secrets.
+test('error paths, redaction, Mini and programmer errors', () => {
+  const schema = z.object({ nested: z.array(Sku.codec) });
+  const result = schema.safeParse({ nested: ['ab-123', 'private-invalid'] });
+  assert.equal(result.success, false);
+  if (!result.success) {
+    assert.deepEqual(result.error.issues[0]!.path, ['nested', 1]);
+    assert.equal(JSON.stringify(result.error).includes('private-invalid'), false);
   }
-  assert.equal(SensitiveText.read(secret), 'demonstration-only');
-  assert.equal(SensitiveText.is(SensitiveText.decode(JSON.parse(JSON.stringify(SensitiveText.encode(secret))))), true);
-  const id = Symbol('policy');
-  const options = { contract: 'example.policy', version: 1, sensitive: true, parse: () => 'text' };
-  const Type = defineSemantic(id, options);
-  options.sensitive = false;
-  assert.throws(() => JSON.stringify(Type.create(null)), /sensitive/);
-  assert.ok(JSON.stringify({ data: SensitiveText.encode(secret) }).includes('demonstration-only'));
+  const id = Symbol();
+  const Mini = defineSemantic(id, { schema: mini.string().check(mini.minLength(2)) });
+  assert.equal(Mini.codec.safeParse('x').success, false);
+  assert.equal(Mini.read(Mini.create('xx')), 'xx');
+  const broken = defineSemantic(id, { schema: z.string().refine(() => { throw new Error('bug'); }) });
+  assert.throws(() => broken.codec.safeParse('x'), /bug/);
+  assert.equal(Sku.codec.safeParse(new Date()).success, false);
+  assert.throws(() => Sku.create({ get value() { throw new Error('getter bug'); } }), /getter bug/);
 });
 
-// Regression: unsupported graphs, opaque children and parser output aliases must not become silently accepted plain data.
-test('plain-data boundary rejects unsupported values and snapshots before parser execution', () => {
-  const id = Symbol('plain');
-  let calls = 0;
-  const Type = defineSemantic(id, { contract: 'example.plain', version: 1, parse: () => { calls++; return {}; } });
-  const cycle: { next?: unknown } = {}; cycle.next = cycle;
-  for (const input of [NaN, Infinity, undefined, new Date(), new Map(), cycle, { child: Identifier.create('valid') }]) {
-    assert.throws(() => Type.create(input));
-  }
-  assert.equal(calls, 0);
-  const mutable = { entries: [1] };
-  const other = Symbol('snapshot');
-  const Snapshot = defineSemantic(other, { contract: 'example.snapshot', version: 1, parse(input) {
-    mutable.entries.push(2);
-    assert.deepEqual(input, { entries: [1] });
-    return { checked: true };
-  } });
-  assert.equal(Snapshot.read(Snapshot.create(mutable)).checked, true);
+// Regression: one-way transforms, unsupported outputs and meaning-changing replay must never mint portable values.
+test('encodability and replay are checked before minting', () => {
+  const id = Symbol();
+  const oneWay = defineSemantic(id, { schema: z.string().transform(x => x.toUpperCase()) });
+  assert.throws(() => oneWay.create('abc'), /unidirectional transform/);
+  const drift = defineSemantic(id, { schema: z.codec(z.number(), z.number(), { decode: x => x + 1, encode: x => x }) });
+  assert.throws(() => drift.create(1), /changes meaning/);
+  const unsupported = defineSemantic(id, { schema: z.codec(z.string(), z.date(), { decode: () => new Date(), encode: () => 'date' }) });
+  assert.throws(() => unsupported.create('date'), /supported plain data/);
+  const invalidWire = defineSemantic(id, { schema: z.codec(z.string().min(1), z.string(), { decode: x => x, encode: () => '' }) });
+  assert.throws(() => invalidWire.create('x'), /encode and reconstruct/);
 });
 
-// Regression: the portable envelope must not consume the data's supported nesting depth on reconstruction.
-test('data at the depth limit round-trips while deeper data is refused', () => {
-  type Nested = number | Nested[];
-  function parse(input: unknown): Nested {
-    if (typeof input === 'number') return input;
-    if (Array.isArray(input)) return input.map(parse);
-    throw new TypeError('Expected nested numeric arrays');
+// Regression: explicit composition encoding may disclose sensitive children but implicit JSON must still refuse.
+test('sensitive values and redacted failures', () => {
+  const schema = z.object({ secret: SensitiveText.codec });
+  const value = schema.parse({ secret: 'example-only' });
+  assert.throws(() => JSON.stringify(value), /Implicit JSON is disabled/);
+  assert.deepEqual(z.encode(schema, value), { secret: 'example-only' });
+  assert.equal(SensitiveText.encode(value.secret), 'example-only');
+  assert.throws(() => JSON.stringify([value.secret]), /Implicit JSON/);
+});
+
+// Regression: retaining plain child wires must still establish the outer relation after canonicalization.
+test('outer invariant checks canonical child meanings', () => {
+  const bundle = Bundle.create({ selected: 'ab-123', items: ['ab-123', 'cd-456'] });
+  assert.deepEqual(readBundle(bundle).items.map(Sku.read), ['AB-123', 'CD-456']);
+  assert.throws(() => Bundle.create({ selected: 'ab-123', items: ['cd-456'] }), z.ZodError);
+  assert.throws(() => Bundle.create({ selected: 'ab-123', items: ['ab-123', 'AB-123'] }), z.ZodError);
+  assert.throws(() => Bundle.create({ selected: 'bad', items: ['bad'] }), z.ZodError);
+  assert.deepEqual(Bundle.encode(Bundle.create(Bundle.encode(bundle))), Bundle.encode(bundle));
+});
+
+// Regression: output custom checks must not attach rejected sensitive inputs even when reporting input is requested.
+test('direct and nested Zod errors keep semantic leaf input redacted', () => {
+  const invalid = 'example-private';
+  const direct = z.safeEncode(SensitiveText.codec, invalid as never, { reportInput: true });
+  const schema = z.object({ nested: z.array(SensitiveText.codec) });
+  const nested = z.safeEncode(schema, { nested: [invalid as never] }, { reportInput: true });
+  const decoded = z.safeDecode(z.object({ nested: z.array(Sku.codec) }), { nested: [invalid] }, { reportInput: true });
+  const output = SensitiveText.codec.out.safeParse(invalid, { reportInput: true });
+  for (const result of [direct, nested, decoded, output]) {
+    assert.equal(result.success, false);
+    if (!result.success) assert.equal(JSON.stringify(result.error).includes(invalid), false);
   }
-  const identity = Symbol('nested');
-  const NestedValue = defineSemantic(identity, { contract: 'example.nested', version: 1, parse });
-  let input: Nested = 1;
-  for (let depth = 0; depth < 128; depth++) input = [input];
-  const value = NestedValue.create(input);
-  assert.equal(JSON.stringify(NestedValue.decode(JSON.parse(JSON.stringify(value)))), JSON.stringify(value));
-  assert.throws(() => NestedValue.create([input]), RangeError);
-  assert.throws(() => NestedValue.decode({ contract: 'example.nested', version: 1, data: [input] }), RangeError);
+  if (!nested.success) assert.deepEqual(nested.error.issues[0]!.path, ['nested', 0]);
+  if (!decoded.success) assert.deepEqual(decoded.error.issues[0]!.path, ['nested', 0]);
+});
+
+// Regression: snapshots must use array indices, not an iterator that substitutes different validation input.
+test('array snapshots ignore overridden iterators', () => {
+  const id = Symbol();
+  const type = defineSemantic(id, { schema: z.array(z.literal('accepted')) });
+  const input = ['rejected'];
+  input[Symbol.iterator] = () => ['accepted'].values();
+  assert.equal(type.codec.safeParse(input).success, false);
+});
+
+// Regression: signed zero needs a lossless application wire, and key-order-sensitive encoders must stabilize.
+test('JSON number loss and unstable canonical encoding cannot mint', () => {
+  const id = Symbol();
+  const negative = defineSemantic(id, { schema: z.number().refine(x => Object.is(x, -0)) });
+  assert.throws(() => negative.create(-0), /supported plain data/);
+  const lossless = defineSemantic(id, { schema: z.codec(z.literal('-0'), z.number(), {
+    decode: () => -0, encode: () => '-0' as const,
+  }) });
+  const value = lossless.create('-0');
+  assert.ok(Object.is(lossless.read(lossless.create(JSON.parse(JSON.stringify(value)))), -0));
+  const changed = defineSemantic(id, { schema: z.codec(z.string(), z.number(), {
+    decode: text => text === 'negative' ? -0 : 0, encode: () => 'positive',
+  }) });
+  assert.throws(() => changed.create('negative'), /changes meaning/);
+  const reordered = defineSemantic(id, { schema: z.codec(z.string(), z.record(z.string(), z.number()), {
+    decode: text => text === 'ab' ? { b: 1, a: 1 } : { a: 1, b: 1 },
+    encode: record => Object.keys(record).join(''),
+  }) });
+  assert.throws(() => reordered.create('ab'), /changes representation/);
+});
+
+// Regression: callback bugs during reverse encoding and replay must preserve the original exception.
+test('encoder and replay programmer exceptions propagate', () => {
+  const id = Symbol();
+  const bug = new Error('callback bug');
+  const encoder = defineSemantic(id, { schema: z.codec(z.string(), z.string(), {
+    decode: x => x, encode: () => { throw bug; },
+  }) });
+  assert.throws(() => encoder.codec.safeParse('x'), error => error === bug);
+  const replay = defineSemantic(id, { schema: z.codec(z.string(), z.string(), {
+    decode: text => { if (text === 'wire') throw bug; return text; }, encode: () => 'wire',
+  }) });
+  assert.throws(() => replay.codec.safeParse('x'), error => error === bug);
 });

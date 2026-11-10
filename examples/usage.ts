@@ -1,18 +1,11 @@
-import { Identifier, DependencyGraph, SensitiveText } from './domains.ts';
-
-const name = Identifier.create(' BLUE_WIDGET ');
-function label(value: Identifier): string { return Identifier.read(value); }
-console.log(label(name));
-
-const graph = DependencyGraph.create({ nodes: [
-  { id: 'base', dependencies: [] }, { id: 'assembly', dependencies: ['base'] },
-] });
-const message = JSON.parse(JSON.stringify({ name, graphs: [graph] }));
-const receivedName = Identifier.decode(message.name);
-const receivedGraph = DependencyGraph.decode(message.graphs[0]);
-console.log(Identifier.read(receivedName), DependencyGraph.read(receivedGraph).nodes.length);
-
-const sensitive = SensitiveText.create('demonstration-only');
-try { JSON.stringify({ sensitive }); }
-catch (error) { if (error instanceof Error) console.log(error.message); }
-console.log(JSON.stringify(SensitiveText.encode(sensitive))); // Explicit disclosure.
+import { z } from 'zod';
+import { Sku, SensitiveText } from './domains.ts';
+import { Order, Bundle, readBundle } from './composition.ts';
+const sku = Sku.create('ab-123');
+console.log(Sku.read(sku), JSON.stringify(sku));
+const order = Order.parse({ owner: 'alice', items: ['ab-123'] });
+const wire = z.encode(Order, order);
+console.log(wire, Order.parse(JSON.parse(JSON.stringify(order))));
+const bundle = Bundle.create({ selected: 'ab-123', items: ['ab-123'] });
+console.log(readBundle(bundle).items.map(Sku.read));
+console.log(SensitiveText.encode(SensitiveText.create('example-only')));

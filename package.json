@@ -12,10 +12,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./zod": {
-      "types": "./dist/zod.d.ts",
-      "import": "./dist/zod.js"
     }
   },
   "types": "./dist/index.d.ts",
@@ -23,7 +19,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\" && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test --test-timeout=5000 test/*.test.ts && node test/package.mjs",
     "check": "npm run build && npm run typecheck && npm test",
@@ -36,10 +32,5 @@
   },
   "peerDependencies": {
     "zod": "^4.6.7"
-  },
-  "peerDependenciesMeta": {
-    "zod": {
-      "optional": true
-    }
   }
 }

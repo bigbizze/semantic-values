@@ -1,68 +1,36 @@
 import { z } from 'zod';
-import { defineSemantic, SemanticValidationError, SemanticDepthError } from '@bigbizze/semantic-values';
-import { semanticCodec, type SemanticCodec } from '@bigbizze/semantic-values/zod';
-import { Identifier, DependencyGraph, SensitiveText } from './domains.ts';
+import { defineSemantic } from '@bigbizze/semantic-values';
+import { Identifier, Sku, DependencyGraph } from './domains.ts';
 
-const skuIdentity: unique symbol = Symbol('Sku');
-export const Sku = defineSemantic(skuIdentity, {
-  contract: 'example.sku', version: 1,
-  parse: z.string().trim().toUpperCase().pipe(z.string().regex(/^[A-Z]{2}-[0-9]{3}$/)).parse,
-});
-type OwnerCodec = SemanticCodec<Identifier, ReturnType<typeof Identifier.encode>>;
-type GraphCodec = SemanticCodec<DependencyGraph, ReturnType<typeof DependencyGraph.encode>>;
-type SensitiveCodec = SemanticCodec<ReturnType<typeof SensitiveText.create>, ReturnType<typeof SensitiveText.encode>>;
-type SkuCodec = SemanticCodec<ReturnType<typeof Sku.create>, ReturnType<typeof Sku.encode>>;
-export const Message: z.ZodObject<{
-  owner: OwnerCodec; items: z.ZodArray<SkuCodec>; graph: GraphCodec;
-  pair: z.ZodTuple<[OwnerCodec, SkuCodec]>;
-  selected: z.ZodUnion<[OwnerCodec, SkuCodec]>;
-  note: z.ZodNullable<z.ZodOptional<SensitiveCodec>>;
-}> = z.object({
-  owner: semanticCodec(Identifier), items: z.array(semanticCodec(Sku)), graph: semanticCodec(DependencyGraph),
-  pair: z.tuple([semanticCodec(Identifier), semanticCodec(Sku)]),
-  selected: z.union([semanticCodec(Identifier), semanticCodec(Sku)]),
-  note: semanticCodec(SensitiveText).optional().nullable(),
-});
-export type Message = z.output<typeof Message>;
+// Explicit shape annotations allow declaration emission without exporting private identity symbols.
+export const Order: z.ZodObject<{
+  owner: typeof Identifier.codec;
+  items: z.ZodArray<typeof Sku.codec>;
+}> = z.object({ owner: Identifier.codec, items: z.array(Sku.codec) });
 
-// Manual codec baseline: same contract authority, but failure and membership handling repeat for every type.
-export const ManualSku = z.codec(
-  z.custom<ReturnType<typeof Sku.encode>>(),
-  z.custom<ReturnType<typeof Sku.create>>(Sku.is, { error: 'Expected local SKU' }),
-  { decode(wire, context) {
-    try { return Sku.decode(wire); }
-    catch (error) {
-      if (!(error instanceof SemanticValidationError || error instanceof SemanticDepthError || error instanceof z.ZodError)) throw error;
-      context.issues.push({ code: 'custom', input: undefined, message: 'Invalid SKU representation' });
-      return z.NEVER;
-    }
-  }, encode(value, context) {
-    if (!Sku.is(value)) {
-      context.issues.push({ code: 'custom', input: undefined, message: 'Expected local SKU' });
-      return z.NEVER;
-    }
-    return Sku.encode(value);
-  } },
-);
-
-// Outer semantic invariant: the selected item must occur in the nonempty, duplicate-free item list.
-// Retain verified child representations, then reconstruct children through one schema when consumed.
-export const BundleFields: z.ZodObject<{ owner: OwnerCodec; selected: SkuCodec; items: z.ZodArray<SkuCodec> }> = z.object({
-  owner: semanticCodec(Identifier), selected: semanticCodec(Sku), items: z.array(semanticCodec(Sku)).min(1),
-}).superRefine((value, context) => {
+export const BundleFields: z.ZodObject<{
+  selected: typeof Sku.codec; items: z.ZodArray<typeof Sku.codec>;
+}> = z.object({ selected: Sku.codec, items: z.array(Sku.codec).min(1) }).refine(value => {
   const items = value.items.map(Sku.read);
-  if (new Set(items).size !== items.length || !items.includes(Sku.read(value.selected))) {
-    context.addIssue({ code: 'custom', path: ['items'], message: 'Items must be distinct and contain the selection' });
-  }
-});
-const bundleIdentity: unique symbol = Symbol('Bundle');
-export const Bundle = defineSemantic(bundleIdentity, {
-  contract: 'example.bundle', version: 1,
-  parse(input) {
-    const wire = z.encode(BundleFields, BundleFields.parse(input));
-    BundleFields.parse(wire); // Check the representation that will actually be retained.
-    return wire;
+  return new Set(items).size === items.length && items.includes(Sku.read(value.selected));
+}, { message: 'Items must be distinct and contain the selection' });
+
+// Retain native child representations, not handles. Both directions recheck the outer invariant.
+const canonicalBundle = z.codec(z.object({ selected: z.string(), items: z.array(z.string()) }), z.object({ selected: z.string(), items: z.array(z.string()) }), {
+  decode(input, ctx) {
+    const result = BundleFields.safeParse(input);
+    if (!result.success) { ctx.issues.push({ code: 'custom', input: undefined, message: 'Invalid bundle' }); return z.NEVER; }
+    return z.encode(BundleFields, result.data);
+  },
+  encode(value, ctx) {
+    const result = BundleFields.safeParse(value);
+    if (!result.success) { ctx.issues.push({ code: 'custom', input: undefined, message: 'Invalid bundle' }); return z.NEVER; }
+    return z.encode(BundleFields, result.data);
   },
 });
-export type Bundle = ReturnType<typeof Bundle.create>;
-export function readBundle(value: Bundle): z.output<typeof BundleFields> { return BundleFields.parse(Bundle.read(value)); }
+const bundleIdentity = Symbol('Bundle');
+export const Bundle = defineSemantic(bundleIdentity, { schema: canonicalBundle });
+export function readBundle(value: ReturnType<typeof Bundle.create>): z.output<typeof BundleFields> {
+  return BundleFields.parse(Bundle.read(value));
+}
+export const GraphMessage: z.ZodObject<{ graph: typeof DependencyGraph.codec; count: z.ZodNumber }> = z.object({ graph: DependencyGraph.codec, count: z.number().int().positive() });

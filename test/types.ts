@@ -1,48 +1,25 @@
-import { defineSemantic, type Semantic } from '@bigbizze/semantic-values';
-import { Identifier, DependencyGraph } from '../examples/domains.ts';
-const first: unique symbol = Symbol('same');
-const second: unique symbol = Symbol('same');
-const options = { contract: 'example.same', version: 1, parse: (_input: unknown) => 'checked' };
-const A = defineSemantic(first, options);
-const B = defineSemantic(second, options);
-const value = A.create(null);
-// Regression: identical labels and data must remain distinct in the package's emitted declarations.
-// @ts-expect-error -- distinct explicit identity
+import { z } from 'zod';
+import { defineSemantic } from '@bigbizze/semantic-values';
+const a = Symbol('same'), b = Symbol('same');
+const A = defineSemantic(a, { schema: z.string() });
+const B = defineSemantic(b, { schema: z.string() });
+const NumberA = defineSemantic(a, { schema: z.number() });
+const value = A.create('x');
+// @ts-expect-error -- independent nominal identities remain distinct
 B.read(value);
-// @ts-expect-error -- structural data cannot substitute for a nominal handle
-A.read({});
-// @ts-expect-error -- spread drops the protected nominal member
-A.encode({ ...value });
-// @ts-expect-error -- no unchecked representation property
-value.representation;
-// @ts-expect-error -- no unchecked data property
-value.data;
-// @ts-expect-error -- widened symbol cannot name a distinct definition
-defineSemantic(Symbol() as symbol, options);
-const NumberType = defineSemantic(first, { ...options, parse: () => 1 });
-// @ts-expect-error -- generic data remains part of the nominal type
-NumberType.read(value);
-const graph = DependencyGraph.create({ nodes: [{ id: 'base', dependencies: [] }] });
-// @ts-expect-error -- deeply readonly result
-DependencyGraph.read(graph).nodes[0]!.dependencies.push('changed');
-// @ts-expect-error -- unrelated semantic domain
-Identifier.read(graph);
-const outerIdentity = Symbol('outer');
-// @ts-expect-error -- opaque child handles are not supported plain data
-defineSemantic(outerIdentity, { ...options, parse: () => ({ child: value }) });
-// These standard signatures preserve T but do not preserve runtime membership.
-A.read(Object.assign({}, value));
-A.encode(structuredClone(value));
-A.read(new Proxy(value, {}));
-A.read({} as typeof value);
-declare const untyped: any;
-A.encode(untyped);
-// Reuse and ordinary factories are not generative static identities.
-defineSemantic(first, options).read(value);
-function factory() { const identity = Symbol('factory'); return defineSemantic(identity, options); }
-factory().read(factory().create(null));
-function forward<T, I extends symbol>(value: Semantic<T, I>): Semantic<T, I> { return value; }
-A.read(forward(forward(value)));
-type Alias = ReturnType<typeof A.create>;
-const alias: Alias = value;
-A.encode(alias);
+// @ts-expect-error -- output data type participates in nominal distinction
+NumberA.read(value);
+// @ts-expect-error -- ordinary strings cannot replace semantic handles
+A.read('x');
+// @ts-expect-error -- broad symbols cannot establish declaration-site identity
+defineSemantic(Symbol(), { schema: z.string() });
+const schema = z.object({ values: z.array(A.codec), other: B.codec.optional().nullable() });
+const output = schema.parse({ values: ['x'] });
+A.read(output.values[0]!);
+// @ts-expect-error -- composition cannot erase nominal distinctions
+B.read(output.values[0]!);
+const wire: z.input<typeof schema> = z.encode(schema, output);
+const text: string = wire.values[0]!;
+// @ts-expect-error -- wire type must not widen to any
+const number: number = wire.values[0]!;
+void [text, number];
